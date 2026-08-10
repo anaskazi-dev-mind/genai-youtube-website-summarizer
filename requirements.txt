@@ -1,0 +1,50 @@
+# ============================================================
+# Core application framework
+# ============================================================
+streamlit==1.61.1
+
+# ============================================================
+# LangChain — used directly at the layer we need, not the
+# full metapackage. load_summarize_chain and the legacy
+# Stuff/MapReduce/Refine chains were deprecated and moved to
+# langchain-classic in LangChain 1.x, so we build the three
+# strategies ourselves on top of these current primitives.
+# ============================================================
+langchain-core==1.5.3
+langchain-groq==1.1.3
+langchain-text-splitters==1.1.2
+
+# ============================================================
+# YouTube pipeline
+# ============================================================
+youtube-transcript-api==1.2.4
+
+# ============================================================
+# Website pipeline
+# trafilatura does main-content extraction (strips nav/ads/
+# boilerplate). beautifulsoup4 is a lightweight fallback for
+# pages where trafilatura returns little or no text.
+# ============================================================
+requests==2.34.2
+trafilatura==2.2.0
+beautifulsoup4==4.15.0
+
+# ============================================================
+# HuggingFace component — local sentence-embedding model used
+# for chunk-level near-duplicate filtering before summarization.
+# Used directly (not through a LangChain Embeddings wrapper)
+# since we only need raw vectors for a similarity filter, not
+# a vector store or retriever.
+# ============================================================
+sentence-transformers==5.7.0
+
+# ============================================================
+# Configuration
+# ============================================================
+python-dotenv==1.2.2
+
+# ============================================================
+# Testing
+# ============================================================
+pytest==9.1.1
+pytest-mock==3.15.1
