@@ -117,6 +117,14 @@ HUGGINGFACE_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 # leave it as an unexamined guess.
 DEDUP_SIMILARITY_THRESHOLD = 0.92
 
+# ---------------------------------------------------------------------------
+# Website extraction configuration
+# ---------------------------------------------------------------------------
+
+# Minimum amount of extracted text required for a webpage to be considered
+# meaningful content. Pages below this threshold may be empty, JS-rendered,
+# or mostly boilerplate.
+MIN_ACCEPTABLE_TEXT_LENGTH = 200
 
 # ---------------------------------------------------------------------------
 # Chunking configuration
