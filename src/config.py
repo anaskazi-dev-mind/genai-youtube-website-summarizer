@@ -20,6 +20,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
+STUFF_STRATEGY_MAX_ESTIMATED_TOKENS = 100_000
 # Load .env into os.environ for local development.
 # On Streamlit Cloud there is no .env file, so this is a harmless no-op;
 # secrets are provided via Streamlit's secrets manager instead (see
