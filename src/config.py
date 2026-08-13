@@ -89,8 +89,7 @@ def get_groq_api_key() -> str:
 # deprecated llama-3.3-70b-versatile was avoided) lives in
 # docs/ARCHITECTURE.md. Overridable via GROQ_MODEL_NAME so a future
 # Groq deprecation is a one-variable change, not a code change.
-DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
-GROQ_MODEL_NAME = _get_secret("GROQ_MODEL_NAME", DEFAULT_GROQ_MODEL)
+from typing import cast
 
 # Low temperature reduces creative drift -- matters for factual summarization.
 GROQ_TEMPERATURE = 0.2
@@ -99,7 +98,12 @@ GROQ_TEMPERATURE = 0.2
 # rather fail one call clearly than hang the whole Streamlit session.
 GROQ_REQUEST_TIMEOUT_SECONDS = 60
 
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 
+GROQ_MODEL_NAME = cast(
+    str,
+    _get_secret("GROQ_MODEL_NAME", DEFAULT_GROQ_MODEL),
+)
 # ---------------------------------------------------------------------------
 # HuggingFace configuration
 # ---------------------------------------------------------------------------
@@ -143,3 +147,17 @@ CHUNK_OVERLAP = 400
 # ---------------------------------------------------------------------------
 
 LOG_LEVEL = _get_secret("LOG_LEVEL", "INFO") or "INFO"
+
+# Reduce/Stuff both make single Groq calls carrying a large combined
+# text block -- this is the shared safety ceiling for "how big can one
+# single-call text block be" before we proactively refuse rather than
+# risk a Groq context-length failure. See stuff_strategy.py and
+# map_reduce_strategy.py's reduce step for where this is used.
+STUFF_STRATEGY_MAX_ESTIMATED_TOKENS = 100_000
+
+# How many chunks Map-Reduce's map step summarizes CONCURRENTLY at
+# once. Higher = faster wall-clock time for long content, but more
+# simultaneous requests to Groq, which risks tripping a rate limit if
+# set too high. 5 is a reasoned starting value balancing those two
+# concerns -- not benchmarked against Groq's actual rate limits yet.
+MAP_REDUCE_MAX_CONCURRENCY = 5
