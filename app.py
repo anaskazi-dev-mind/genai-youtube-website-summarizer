@@ -69,15 +69,23 @@ def _init_session_state() -> None:
     unrelated rerun -- e.g. expanding the "Source details" section --
     would make the summary disappear, since it would only exist for
     the single rerun triggered by the Summarize button itself.
+
+    Uses atomic updates via dict.update() to minimize race conditions
+    in Streamlit's concurrent rerun model.
     """
-    st.session_state.setdefault("summary_result", None)
-    st.session_state.setdefault("error_message", None)
-    # Bumped on "Start Over" to force the URL text_input to reset --
-    # changing a widget's key is the standard Streamlit pattern for
-    # clearing a widget's value, since a widget's value can't be
-    # reassigned directly after it's been instantiated.
-    st.session_state.setdefault("input_key_version", 0)
-    st.session_state.setdefault("pipeline_running", False)
+    defaults = {
+        "summary_result": None,
+        "error_message": None,
+        # Bumped on "Start Over" to force the URL text_input to reset --
+        # changing a widget's key is the standard Streamlit pattern for
+        # clearing a widget's value, since a widget's value can't be
+        # reassigned directly after it's been instantiated.
+        "input_key_version": 0,
+        "pipeline_running": False,
+    }
+    # Atomic update: only set keys that don't already exist
+    for key, default_value in defaults.items():
+        st.session_state.setdefault(key, default_value)
 
 
 def _run_pipeline(url: str, strategy_name: str, status) -> SummaryResult:
@@ -102,6 +110,14 @@ def _run_pipeline(url: str, strategy_name: str, status) -> SummaryResult:
 
     status.update(label=f"Checking {len(chunks)} chunk(s) for redundant content...")
     chunks = deduplicate_chunks(chunks)
+
+    # ISSUE FIX #5: Validate that deduplication didn't remove all chunks
+    if not chunks:
+        raise SummarizationError(
+            "All content chunks were identified as near-duplicates and removed. "
+            "This typically happens with highly repetitive content. "
+            "Please try a different video or article."
+        )
 
     status.update(
         label=f"Summarizing {len(chunks)} chunk(s) with the "

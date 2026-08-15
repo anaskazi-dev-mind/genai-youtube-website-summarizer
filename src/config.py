@@ -86,8 +86,9 @@ def get_groq_api_key() -> str:
 
 # Default Groq model. Full reasoning (context window, cost, why the
 # deprecated llama-3.3-70b-versatile was avoided) lives in
-# docs/ARCHITECTURE.md. Overridable via GROQ_MODEL_NAME so a future
-# Groq deprecation is a one-variable change, not a code change.
+# docs/ARCHITECTURE.md. This is the model recommended in Groq's
+# documentation for general-purpose summarization tasks with strong
+# reasoning capability and 131K token context window.
 from typing import cast
 
 # Low temperature reduces creative drift -- matters for factual summarization.
@@ -97,7 +98,12 @@ GROQ_TEMPERATURE = 0.2
 # rather fail one call clearly than hang the whole Streamlit session.
 GROQ_REQUEST_TIMEOUT_SECONDS = 120
 
-DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant"
+# PRIMARY MODEL: openai/gpt-oss-120b
+# - 131K token context window (handles most content in single Stuff call)
+# - Strong reasoning for structured summarization
+# - Recommended by Groq for general-purpose tasks
+# - Fast inference on Groq's LPU hardware
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 
 GROQ_MODEL_NAME = cast(
     str,
@@ -114,6 +120,10 @@ GROQ_MODEL_NAME = cast(
 # Cloud's free tier. Alternatives we rejected (a local HF summarization
 # model as a "fallback") are documented in docs/ARCHITECTURE.md.
 HUGGINGFACE_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+# Timeout in seconds for downloading and initializing the HuggingFace
+# embedding model. This prevents indefinite hangs on slow connections.
+HUGGINGFACE_EMBEDDING_TIMEOUT_SECONDS = 30
 
 # Cosine-similarity threshold above which two chunks are treated as
 # near-duplicates. This is a starting value -- we'll validate and
@@ -140,6 +150,12 @@ MIN_ACCEPTABLE_TEXT_LENGTH = 200
 CHUNK_SIZE = 6000
 CHUNK_OVERLAP = 500
 
+# Maximum number of chunks to process per content source. This is a
+# safety ceiling to prevent runaway API costs on extremely long content.
+# If content chunks to more than this, processing fails with a clear error
+# instead of silently truncating (see chunker.py).
+# For reference: 5 chunks * 6000 chars = ~30K chars ≈ ~7.5K tokens
+MAX_CHUNKS_PER_CONTENT = 15
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -156,7 +172,7 @@ STUFF_STRATEGY_MAX_ESTIMATED_TOKENS = 100_000
 
 # How many chunks Map-Reduce's map step summarizes CONCURRENTLY at
 # once. Higher = faster wall-clock time for long content, but more
-# simultaneous requests to Groq, which risks tripping a rate limit if
-# set too high. 5 is a reasoned starting value balancing those two
-# concerns -- not benchmarked against Groq's actual rate limits yet.
+# simultaneous requests to Groq. Tuned to balance parallelism against
+# rate-limit risk. Set to 5 as a conservative starting value; monitor
+# and adjust based on actual Groq rate limit behavior.
 MAP_REDUCE_MAX_CONCURRENCY = 1

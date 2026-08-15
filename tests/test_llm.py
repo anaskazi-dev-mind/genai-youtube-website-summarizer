@@ -22,13 +22,14 @@ import httpx
 import groq
 import pytest
 
-from src.config import GROQ_MODEL_NAME, ConfigError
+from src.config import GROQ_MODEL_NAME, GROQ_REQUEST_TIMEOUT_SECONDS, ConfigError
 from src.summarization import llm
 from src.summarization.llm import (
     LLMGenerationError,
     get_llm,
     safe_batch,
     safe_invoke,
+    _MAX_RETRIES,
 )
 
 
@@ -64,13 +65,13 @@ def test_get_llm_constructs_chatgroq_with_configured_settings(mocker):
     _, kwargs = mock_class.call_args
     assert kwargs["model"] == GROQ_MODEL_NAME
     assert kwargs["temperature"] == 0.2
-    assert kwargs["max_retries"] == 2
+    assert kwargs["max_retries"] == _MAX_RETRIES
+    assert kwargs["timeout"] == GROQ_REQUEST_TIMEOUT_SECONDS
     # Not asserting the exact api_key value/type here -- whether the
     # implementation passes the plain string or wraps it in
     # pydantic.SecretStr is an internal detail; what matters for this
     # test is that a key value is passed through at all.
     assert "api_key" in kwargs
-    assert "timeout" in kwargs
 
 
 def test_get_llm_is_constructed_only_once_across_multiple_calls(mocker):

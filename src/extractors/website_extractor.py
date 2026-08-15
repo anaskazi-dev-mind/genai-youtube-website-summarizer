@@ -11,6 +11,7 @@ a BeautifulSoup-based fallback pulls all <p> tag text after stripping
 obviously non-content tags.
 """
 
+import html
 import json
 
 import requests
@@ -89,10 +90,10 @@ def _fetch_html(url: str) -> str:
     return response.text
 
 
-def _extract_with_beautifulsoup(html: str) -> tuple[str, str | None]:
+def _extract_with_beautifulsoup(html_content: str) -> tuple[str, str | None]:
     """Fallback content extraction: strip obviously non-content tags,
     then join whatever text remains in <p> tags."""
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(html_content, "html.parser")
     for tag in soup(["script", "style", "nav", "header", "footer", "noscript", "form"]):
         tag.decompose()
 
@@ -104,11 +105,26 @@ def _extract_with_beautifulsoup(html: str) -> tuple[str, str | None]:
     return text.strip(), title
 
 
-def _extract_main_content(html: str) -> tuple[str, str | None]:
+def _sanitize_title(title: str | None) -> str | None:
+    """
+    Sanitizes extracted HTML title by unescaping HTML entities.
+    This prevents prompt injection and XSS by ensuring the title
+    is plain text, not markup.
+    """
+    if not title:
+        return None
+    # Unescape HTML entities (e.g., &lt; -> <, &#39; -> ')
+    sanitized = html.unescape(title)
+    # Remove any remaining HTML tags or dangerous characters
+    sanitized = sanitized.replace("<", "").replace(">", "")
+    return sanitized.strip() or None
+
+
+def _extract_main_content(html_content: str) -> tuple[str, str | None]:
     """Returns (text, title). Tries trafilatura first; falls back to
     BeautifulSoup if trafilatura returns nothing or too little text."""
     json_result = trafilatura.extract(
-        html,
+        html_content,
         output_format="json",
         with_metadata=True,
         include_comments=False,
@@ -121,11 +137,12 @@ def _extract_main_content(html: str) -> tuple[str, str | None]:
             text = (parsed.get("text") or "").strip()
             title = parsed.get("title")
             if len(text) >= MIN_ACCEPTABLE_TEXT_LENGTH:
-                return text, title
+                return text, _sanitize_title(title)
         except json.JSONDecodeError:
             pass  # fall through to the BeautifulSoup fallback below
 
-    return _extract_with_beautifulsoup(html)
+    text, title = _extract_with_beautifulsoup(html_content)
+    return text, _sanitize_title(title)
 
 
 def fetch_website_document(url: str) -> Document:
@@ -143,8 +160,8 @@ def fetch_website_document(url: str) -> Document:
 
     logger.info("Fetching website content for url=%s", url)
 
-    html = _fetch_html(url)
-    text, title = _extract_main_content(html)
+    html_content = _fetch_html(url)
+    text, title = _extract_main_content(html_content)
 
     if not text or len(text) < MIN_ACCEPTABLE_TEXT_LENGTH:
         raise WebsiteExtractionError(

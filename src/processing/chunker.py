@@ -18,7 +18,7 @@ from typing import List
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from src.config import CHUNK_OVERLAP, CHUNK_SIZE
+from src.config import CHUNK_OVERLAP, CHUNK_SIZE, MAX_CHUNKS_PER_CONTENT
 from src.logger import get_logger
 
 logger = get_logger(__name__)
@@ -44,7 +44,12 @@ def split_documents(documents: List[Document]) -> List[Document]:
     so any chunk can always be traced back to where it came from --
     useful in logs, and for the Refine strategy, which needs to know
     chunk order.
+
+    Raises SummarizationError if content chunks to more than
+    MAX_CHUNKS_PER_CONTENT to prevent runaway API costs.
     """
+    from src.summarization.base_strategy import SummarizationError
+
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
@@ -54,15 +59,14 @@ def split_documents(documents: List[Document]) -> List[Document]:
 
     chunks = splitter.split_documents(documents)
 
-    MAX_CHUNKS = 5
-
-    if len(chunks) > MAX_CHUNKS:
-        logger.warning(
-            "Too many chunks (%d). Limiting to first %d chunks.",
-            len(chunks),
-            MAX_CHUNKS,
+    if len(chunks) > MAX_CHUNKS_PER_CONTENT:
+        raise SummarizationError(
+            f"This content is too long to process ({len(chunks)} chunks, "
+            f"limit is {MAX_CHUNKS_PER_CONTENT} chunks). "
+            "This safeguard prevents excessive API costs on extremely long content. "
+            "Please try a shorter video or article, or split long content into "
+            "smaller pieces."
         )
-        chunks = chunks[:MAX_CHUNKS]
 
     # chunk_index is scoped per source_url, not global across all
     # input documents -- matters if this is ever called with multiple
