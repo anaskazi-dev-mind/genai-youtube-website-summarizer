@@ -160,4 +160,4 @@ STUFF_STRATEGY_MAX_ESTIMATED_TOKENS = 100_000
 # simultaneous requests to Groq, which risks tripping a rate limit if
 # set too high. 5 is a reasoned starting value balancing those two
 # concerns -- not benchmarked against Groq's actual rate limits yet.
-MAP_REDUCE_MAX_CONCURRENCY = 5
+MAP_REDUCE_MAX_CONCURRENCY = 1
