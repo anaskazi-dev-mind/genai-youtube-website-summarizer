@@ -1,458 +1,616 @@
 # 📝 AI YouTube & Website Summarizer
 
-An LLM-powered summarization application that transforms YouTube videos and website articles into structured, actionable summaries using three interchangeable strategies—Stuff, Map-Reduce, and Refine. Built with LangChain, powered by Groq, and deployed on Streamlit.
+An LLM-powered summarization application that transforms YouTube videos
+and website articles into clear, structured summaries using three
+interchangeable summarization strategies—Stuff, Map-Reduce, and Refine—
+built with LangChain and powered by Groq.
 
-![Python](https://img.shields.io/badge/Python-3.9+-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-135%20passing-brightgreen)
+> **Status:** The core pipeline and Streamlit UI are complete and deployed on Streamlit Cloud. Website summarization works end-to-end using real Groq API calls. YouTube summarization works reliably in local development. On Streamlit Cloud, transcript extraction may fail because YouTube blocks transcript requests from many shared cloud IP addresses—a platform limitation rather than an application issue.
 
 ---
 
 ## Table of Contents
 
-- [Overview](#overview)
+- [Problem & Solution](#problem--solution)
 - [Features](#features)
-- [Supported Sources](#supported-sources)
-- [Summarization Strategies](#summarization-strategies)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Installation](#installation)
-- [Environment Variables](#environment-variables)
-- [Running Locally](#running-locally)
-- [Running Tests](#running-tests)
-- [Configuration Options](#configuration-options)
-- [Error Handling](#error-handling)
-- [Logging](#logging)
-- [Rate Limit Handling](#rate-limit-handling)
-- [Example Usage](#example-usage)
-- [Limitations](#limitations)
-- [Performance Considerations](#performance-considerations)
-- [Future Improvements](#future-improvements)
-- [Contributing](#contributing)
 - [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Model Selection](#model-selection)
+- [Summarization Strategies](#summarization-strategies)
+- [YouTube Pipeline](#youtube-pipeline)
+- [Website Pipeline](#website-pipeline)
+- [Chunking Strategy](#chunking-strategy)
+- [Prompt Engineering](#prompt-engineering)
+- [Role of Each Core Technology](#role-of-each-core-technology)
+- [Error Handling](#error-handling)
+- [Security](#security)
+- [Testing](#testing)
+- [Local Setup](#local-setup)
+- [Environment Variables](#environment-variables)
+- [GitHub & Deployment Workflow](#github--deployment-workflow)
+- [Streamlit Cloud Deployment](#streamlit-cloud-deployment)
+- [Limitations](#limitations)
+- [Future Improvements](#future-improvements)
+- [Screenshots](#screenshots)
+- [Live Demo](#live-demo)
 
 ---
 
-## Overview
+## Problem & Solution
 
-This project solves the problem of consuming large volumes of long-form video and article content. Instead of watching 1-hour videos or reading 10,000-word articles, users can paste a URL and get a concise, well-structured summary in seconds.
+**Problem:** Long-form YouTube videos and website articles take
+significant time to consume. Many existing summarization tools focus on
+a single content source or rely on a single summarization approach,
+making them less effective across different types and lengths of
+content.
 
-The application extracts content, cleans it, splits it into manageable chunks, removes redundant content using semantic similarity, and generates summaries using one of three LLM-powered strategies, each optimized for different content lengths and use cases.
-
----
+**Solution:** This project extracts content from a YouTube video or a
+website URL, cleans and chunks the text, optionally removes
+near-duplicate content, and generates a structured Markdown summary
+using one of three interchangeable summarization strategies—Stuff,
+Map-Reduce, or Refine. Each strategy is designed for different content
+lengths and structures while producing a consistent output format.
 
 ## Features
 
-✅ **Multi-source summarization**
-- YouTube video transcripts (English-language only)
-- Website articles and blog posts
-- Both sources processed through a unified pipeline
+- Summarizes both YouTube videos and website/articles from a single application
+- Website summarization works in both local and Streamlit Cloud deployments
+- YouTube transcript summarization is fully supported locally (cloud deployments may be affected by YouTube transcript blocking on shared cloud IPs)
+- Supports three summarization strategies:
+  - **Stuff** – Fast, single-pass summarization for short to medium content
+  - **Map-Reduce** – Best for long documents using parallel chunk summarization
+  - **Refine** – Sequential summarization that preserves narrative continuity
+- Generates structured Markdown summaries with:
+  - Title
+  - Executive Summary
+  - Key Points
+  - Important Details
+  - Main Takeaways
+  - Conclusion
+- Removes near-duplicate content using semantic similarity (HuggingFace embeddings)
+- Displays live pipeline progress (Extraction → Cleaning → Chunking → Deduplication → Summarization)
+- Provides clear, user-friendly error messages for all supported failure scenarios
+- Keeps API keys secure using environment variables (`.env`) and Streamlit Secrets
+- 135 automated tests covering URL validation, content extraction, text cleaning, chunking, semantic deduplication, all summarization strategies, strategy selection, configuration, and LLM error handling
 
-✅ **Three summarization strategies**
-- **Stuff**: Fast, single-call summarization for short content
-- **Map-Reduce**: Parallel chunk processing for long documents
-- **Refine**: Sequential updates preserving narrative continuity
+## Architecture
 
-✅ **Intelligent content processing**
-- Automatic text cleaning (normalization, noise removal)
-- Smart chunking with sentence/paragraph boundary preservation
-- Semantic deduplication using HuggingFace embeddings
-- Live pipeline progress tracking in the UI
+The application follows a modular pipeline where each stage has a single responsibility and can be tested independently.
 
-✅ **Structured output**
-- Title, Executive Summary, Key Points, Important Details, Takeaways, Conclusion
-- Markdown format for easy sharing and rendering
-- Consistent structure across all strategies
+```text
+                        INPUT URL
+                            │
+                            ▼
+        URL Validation & Source Detection
+             (src/validators.py)
+                            │
+                            ▼
+             Content Extraction
+          (src/extractors/)
+                            │
+                            ▼
+              Document Cleaning
+      (src/processing/cleaner.py)
+                            │
+                            ▼
+                Text Chunking
+      (src/processing/chunker.py)
+                            │
+                            ▼
+          Semantic Deduplication
+   (src/processing/deduplicator.py)
+                            │
+                            ▼
+         Summarization Strategy
+     (Stuff / Map-Reduce / Refine)
+      (src/summarization/)
+                            │
+                            ▼
+            Structured Summary
+                            │
+                            ▼
+               Streamlit UI
+                 (app.py)
+```
 
-✅ **Production-ready quality**
-- 135 automated tests with >95% code coverage
-- Comprehensive error handling for all failure scenarios
-- Security: No hardcoded API keys, environment-based secrets only
-- Logging: Detailed pipeline telemetry without leaking sensitive data
-- Rate limit resilience: Exponential backoff retry on Groq quota exhaustion
+### Design Overview
 
-✅ **Developer-friendly**
-- Modular architecture: Easy to extend with new extractors or strategies
-- Single responsibility per component
-- Centralized configuration in `src/config.py`
-- Clean separation of UI (app.py) from business logic (src/)
+The project is organized into independent layers, making the codebase modular, maintainable, and easy to extend.
 
----
+- **Validation Layer** validates the input URL and detects whether it is a YouTube video or a website.
+- **Extraction Layer** contains source-specific extractors (`youtube_extractor.py` and `website_extractor.py`) that convert different inputs into a common LangChain `Document` object.
+- **Processing Layer** performs text cleaning, chunking, and semantic deduplication before sending content to the LLM.
+- **Summarization Layer** implements the Strategy design pattern. All summarization strategies inherit from the common `SummarizationStrategy` interface defined in `base_strategy.py` and are selected dynamically through `strategy_factory.py`.
+- **Presentation Layer** (`app.py`) contains only Streamlit UI logic. All business logic resides inside the `src/` package, keeping the user interface separate from the application logic.
 
-## Supported Sources
+### Benefits of this Architecture
 
-### YouTube Videos
-- **Format**: URLs like `youtube.com/watch?v=VIDEO_ID`, `youtu.be/VIDEO_ID`, `/shorts/VIDEO_ID`, `/live/VIDEO_ID`, `/embed/VIDEO_ID`
-- **Language**: English transcripts only
-- **Limitations**: 
-  - Requires YouTube captions/transcripts to be available
-  - May fail on Streamlit Cloud due to YouTube blocking shared cloud IPs
-  - Works reliably in local development
+- Separation of concerns
+- Modular and maintainable codebase
+- Easily testable components
+- Simple to add new summarization strategies
+- Clear separation between UI and business logic
 
-### Websites & Articles
-- **Format**: Any `http://` or `https://` URL
-- **Method**: Smart content extraction using trafilatura (with BeautifulSoup fallback)
-- **Works best**: Standard blog posts, news articles, documentation
-- **Limitations**:
-  - No headless browser: JavaScript-rendered content may not extract properly
-  - Paywalled/anti-bot content may fail extraction
-  - Minimum 200 characters of extractable content required
-
----
-
-## Summarization Strategies
-
-| Strategy | How It Works | Best For | Latency | API Calls | Cost |
-|----------|-------------|----------|---------|-----------|------|
-| **Stuff** | Combines all chunks into one prompt, single LLM call | Short to medium content (<6000 chars) | ⚡ Fastest | 1 | Lowest |
-| **Map-Reduce** | Summarizes each chunk independently (concurrent), combines in reduce step | Long content with natural section breaks | 🔄 Medium | 1 + N | Medium |
-| **Refine** | Initial summary, then sequentially refines with each chunk | Long narrative content, needs context preservation | 🐢 Slowest | 1 + N | Medium |
-
-**Selection Guide:**
-- Want speed? Use **Stuff** for articles/videos under 15 minutes
-- Processing long content? Use **Map-Reduce** for parallel efficiency
-- Summarizing novels/podcasts? Use **Refine** to preserve story arc
-
----
 
 ## Tech Stack
 
-| Component | Technology | Purpose |
-|-----------|-----------|---------|
-| **LLM Inference** | Groq (`openai/gpt-oss-120b`) | Fast, 131K context window |
-| **LLM Framework** | LangChain 1.x modular packages | Document/prompt/chain orchestration |
-| **Embeddings** | HuggingFace `sentence-transformers/all-MiniLM-L6-v2` | Semantic deduplication only (~90MB, local) |
-| **UI/Frontend** | Streamlit | Zero-configuration web interface |
-| **YouTube Extraction** | `youtube-transcript-api` | Transcript fetching |
-| **Web Extraction** | `trafilatura` + `beautifulsoup4` | Content extraction |
-| **Testing** | Pytest + pytest-mock | Unit/integration testing |
+| Layer | Technology |
+|--------|------------|
+| **LLM Provider** | Groq (`openai/gpt-oss-120b`) |
+| **LLM Framework** | LangChain (`langchain-core`, `langchain-groq`, `langchain-text-splitters`) |
+| **Embeddings (Semantic Deduplication)** | HuggingFace Sentence Transformers (`all-MiniLM-L6-v2`) |
+| **Frontend/UI** | Streamlit |
+| **YouTube Content Extraction** | `youtube-transcript-api` |
+| **Website Content Extraction** | `trafilatura`, `requests`, `beautifulsoup4` (fallback) |
+| **Testing Framework** | `pytest`, `pytest-mock` |
 
-**Why these choices?**
-- **Groq**: Fastest LLM inference; free tier good for experimentation
-- **LangChain modular**: Lightweight, no dependency on deprecated `langchain` monolith
-- **Sentence Transformers**: Tiny, no GPU needed, works on Streamlit Cloud free tier
-- **Streamlit**: Fastest way to build a data/ML app without frontend expertise
-- **Trafilatura**: Purpose-built for main content extraction from web pages
-- **Pytest**: Industry standard Python testing with excellent mocking support
+### Why these technologies?
+
+- **Groq** provides fast LLM inference for generating summaries.
+- **LangChain** handles document processing, prompt templates, text splitting, and LLM orchestration.
+- **HuggingFace Sentence Transformers** generate embeddings used to detect and remove semantically similar chunks before summarization.
+- **Streamlit** provides a lightweight web interface for interacting with the summarization pipeline.
+- **youtube-transcript-api** extracts transcripts directly from YouTube videos.
+- **Trafilatura** extracts the main textual content from websites, while **BeautifulSoup** acts as a fallback when required.
+- **Pytest** is used for automated unit testing across the project.
+
+### Note on LangChain
+
+This project uses the modular LangChain packages:
+
+- `langchain-core`
+- `langchain-groq`
+- `langchain-text-splitters`
+
+instead of the monolithic `langchain` package.
+
+In LangChain 1.x, the legacy `load_summarize_chain` helper and its Stuff, Map-Reduce, and Refine chain implementations were moved to the separate `langchain-classic` package. Instead of relying on those legacy abstractions, this project implements all three summarization strategies directly using LangChain's LCEL (`prompt | llm | parser`) pipeline.
+
+This approach makes each strategy easier to understand, customize, test, and extend while staying aligned with LangChain's current architecture.
+
+## Model Selection
+
+### Primary LLM
+
+**Model:** `openai/gpt-oss-120b` (via Groq)
+
+The application uses **`openai/gpt-oss-120b`** as its default summarization model because it provides a strong balance between context length, reasoning capability, and inference speed.
+
+### Why this model?
+
+- **131K token context window**, allowing the Stuff strategy to summarize most content in a single request while giving Map-Reduce and Refine ample context for each chunk.
+- **Strong reasoning and structured-output capabilities**, helping the model consistently generate well-organized summaries.
+- **Recommended general-purpose model on Groq**, replacing older models such as `llama-3.3-70b-versatile`, which have been deprecated.
+- **Fast inference on Groq's LPU hardware**, providing low-latency responses despite the model's large size.
+
+### Alternative Models Considered
+
+| Model | Reason Not Selected |
+|--------|---------------------|
+| `openai/gpt-oss-20b` | Smaller, faster, and cheaper. A good candidate for a future **Fast Mode**, but the 120B model consistently provides higher-quality summaries. |
+| `qwen/qwen3-32b` and newer Qwen models | Strong benchmark performance, but higher cost and additional complexity than required for this project. |
+| `meta-llama/llama-4-scout-17b-16e-instruct` | Excellent inference speed and multimodal support, but multimodal capabilities are not needed because this application processes only text. |
+
+### Selection Rationale
+
+The model was selected based on its published specifications, Groq's current recommendations, and suitability for long-context summarization workloads.
+
+**Note:** No formal benchmark was performed on this project's own dataset. The selection is based on practical engineering considerations rather than a measured comparison across multiple models.
+
+## Summarization Strategies
+
+The application supports three interchangeable summarization strategies. Each strategy is optimized for different content lengths and use cases.
+
+| Strategy | How It Works | Best For | Trade-offs |
+|----------|--------------|----------|------------|
+| **Stuff** | Combines all chunks into a single prompt and generates one summary using a single Groq API call. | Short to medium-length content | Fastest and simplest approach, but limited by the model's maximum context window. |
+| **Map-Reduce** | Summarizes each chunk independently (Map) using concurrent LLM calls, then combines those intermediate summaries into one final summary (Reduce). | Long documents and articles with relatively independent sections | Scales well for large inputs and reduces processing time, but each chunk is summarized without surrounding context. |
+| **Refine** | Generates an initial summary from the first chunk, then sequentially updates that summary as each remaining chunk is processed. | Long-form content with strong narrative flow or chronological order | Preserves context better than Map-Reduce but requires sequential LLM calls, making it slower for large inputs. |
+
+### Strategy Selection Logic
+
+- **Stuff** proactively checks the estimated input size before making an LLM request. If the content is too large for a single prompt, it raises a clear error recommending **Map-Reduce** or **Refine** instead of allowing a cryptic context-length failure.
+- **Map-Reduce** performs the same validation before its final Reduce step. In rare cases where the combined intermediate summaries still exceed the model's context window, the strategy reports a user-friendly error rather than failing unexpectedly.
+- **Refine** processes chunks sequentially to preserve context across the document, but it does not currently support checkpointing or recovery if an intermediate LLM call fails.
+
+A hierarchical (recursive) Reduce implementation for extremely large documents is **not included** in the current version and is listed under **Future Improvements**.
+
+## YouTube Pipeline
+
+The YouTube pipeline extracts transcripts from supported YouTube videos and converts them into a common document format for downstream processing.
+
+1. Validate the input URL and extract the video ID.
+   - Supported URL formats include:
+     - `watch?v=`
+     - `youtu.be/`
+     - `/embed/`
+     - `/shorts/`
+     - `/live/`
+
+2. Fetch the transcript using the current instance-based API provided by `youtube-transcript-api`:
+   ```python
+   YouTubeTranscriptApi().fetch(...)
+   ```
+
+3. Convert the transcript into a LangChain `Document` with metadata for the processing pipeline.
+
+4. Handle all supported failure scenarios with clear, user-friendly error messages, including:
+   - Invalid or unavailable videos
+   - Disabled transcripts
+   - Missing transcripts
+   - Age-restricted videos
+   - Blocked or rate-limited transcript requests
+
+5. Continue the standard processing pipeline:
+   - Text cleaning
+   - Chunking
+   - Semantic deduplication
+   - Summarization
+
+### Current Limitation
+
+Only English-language transcripts are currently supported.
+
+During deployment, YouTube transcript requests from **Streamlit Cloud** may be blocked because they originate from shared cloud IP addresses. This is an external limitation of YouTube's transcript service rather than the application itself. The same videos work correctly when the application is run locally.
+
+## Website Pipeline
+
+The website pipeline extracts the primary textual content from web pages and prepares it for summarization.
+
+1. Validate the input URL.
+
+2. Fetch the webpage using `requests` with:
+   - A realistic User-Agent header
+   - Configurable request timeout
+
+3. Extract the main article content using `trafilatura`, which removes common boilerplate such as:
+   - Navigation menus
+   - Headers and footers
+   - Advertisements
+   - Other non-content elements
+
+4. If `trafilatura` extracts too little content, fall back to a `BeautifulSoup`-based parser that:
+   - Removes known non-content HTML elements
+   - Extracts text from `<p>` tags
+
+5. Convert the extracted content into a LangChain `Document` for downstream processing.
+
+6. Handle all supported failure scenarios with clear, user-friendly error messages, including:
+   - Invalid URLs
+   - Connection failures
+   - Request timeouts
+   - HTTP errors
+   - Non-HTML responses
+   - Pages with insufficient extractable content
+
+### Current Limitation
+
+The application does not use a headless browser. As a result, JavaScript-rendered websites, heavily protected pages, and some paywalled content may not expose enough server-side HTML for successful extraction.
+
+## Chunking Strategy
+
+The application uses LangChain's `RecursiveCharacterTextSplitter` to divide large documents into manageable chunks before summarization.
+
+Unlike a simple fixed-length splitter, it attempts to preserve natural text boundaries by splitting in the following order:
+
+- Paragraphs
+- Sentences
+- Words
+- Characters (only as a last resort)
+
+### Configuration
+
+| Parameter | Value | Purpose |
+|-----------|-------|---------|
+| `CHUNK_SIZE` | `4000` characters | Keeps each chunk large enough to preserve context while remaining suitable for LLM processing. |
+| `CHUNK_OVERLAP` | `400` characters (10%) | Preserves context across chunk boundaries and reduces information loss between adjacent chunks. |
+
+A chunk size of **4000 characters** corresponds to roughly **1,000 tokens** (using an approximate conversion of 4 characters per token). This provides a practical balance between context preservation, processing speed, and API cost.
+
+### Design Rationale
+
+The chosen chunk size and overlap values are intended to:
+
+- Preserve semantic context across chunks
+- Reduce abrupt context loss at chunk boundaries
+- Improve summary quality for long documents
+- Keep individual LLM requests efficient for the Map-Reduce and Refine strategies
+
+These values are engineering defaults based on practical reasoning rather than empirical tuning against a labeled evaluation dataset.
+
+## Prompt Engineering
+
+All prompt templates are centralized in `src/summarization/prompts.py`. No other part of the codebase constructs prompts directly, making prompt management consistent and easier to maintain.
+
+### Design Principles
+
+- All summarization strategies share a common structured output format.
+- A single factuality and constraint block is reused across strategies to encourage consistent, grounded summaries.
+- Prompt definitions are centralized, preventing prompt drift as the project evolves.
+- Each strategy only customizes the behavior required for its summarization workflow.
+
+### Strategy-Specific Prompts
+
+- **Stuff** uses a single prompt that summarizes the entire document in one LLM call.
+- **Map-Reduce**
+  - The **Map** step generates concise plain-text summaries for individual chunks.
+  - The **Reduce** step combines those intermediate summaries into the final structured output.
+- **Refine** starts with an initial summary and repeatedly updates it as each new chunk is processed.
+
+The Map step intentionally produces **plain text instead of the final structured format** because its output is an intermediate artifact that is consumed only by the Reduce step.
+
+For a detailed explanation of each prompt and the reasoning behind its design, see `docs/ARCHITECTURE.md`.
+
+## Role of Each Core Technology
+
+### LangChain
+
+LangChain provides the core orchestration layer for the application, including:
+
+- `Document` objects for representing extracted content
+- `RecursiveCharacterTextSplitter` for chunking large documents
+- `ChatPromptTemplate` for prompt management
+- `ChatGroq` for connecting to Groq-hosted LLMs
+- LCEL (`prompt | llm | parser`) pipelines for implementing the Stuff, Map-Reduce, and Refine summarization strategies
+
+### Groq
+
+Groq serves as the LLM inference provider for the application.
+
+It executes every summarization request through the `langchain-groq` integration, providing fast inference for all three summarization strategies.
+
+### HuggingFace
+
+The project uses the local Sentence Transformer model:
+
+`sentence-transformers/all-MiniLM-L6-v2`
+
+Its role is **only** semantic deduplication.
+
+Before sending chunks to the LLM, embeddings are generated to identify and remove near-duplicate content, reducing redundant summarization requests—particularly for YouTube transcripts that often contain repeated intros, sponsor messages, or recurring phrases.
+
+This model does **not** generate summaries. It was chosen because it is lightweight (approximately **90 MB**), runs locally without a GPU or HuggingFace API token, and works well within the resource limits of Streamlit Cloud.
+
+### Streamlit
+
+Streamlit is responsible only for the user interface.
+
+It handles:
+
+- URL input
+- Strategy selection
+- Pipeline progress display
+- Error presentation
+- Summary rendering
+
+All extraction, processing, and summarization logic remains inside the `src/` package, keeping the presentation layer separate from the application's business logic.
+
+## Error Handling
+
+The application uses custom, domain-specific exceptions to ensure users receive clear, actionable error messages while preserving detailed technical information for debugging.
+
+### Design
+
+- Each project-specific exception exposes a `.user_message` that is safe to display in the UI.
+- Technical exception details are written to the application logs instead of being shown to the user.
+- This separation keeps the interface user-friendly while providing sufficient diagnostic information during development.
+
+### Handled Failure Scenarios
+
+The application provides dedicated error handling for:
+
+- Invalid or unsupported URLs
+- Missing or disabled YouTube transcripts
+- Age-restricted or unavailable YouTube videos
+- YouTube transcript blocking or rate limiting
+- Website connection failures
+- Request timeouts
+- HTTP errors
+- Non-HTML responses
+- Pages with insufficient extractable content
+- Content exceeding a strategy's supported context size
+- Groq API errors, including:
+  - Authentication failures
+  - Rate-limit errors
+  - Request timeouts
+  - Connection failures
+  - Bad requests
+  - Other HTTP status errors
+
+This approach allows the application to fail gracefully, present meaningful feedback to users, and avoid exposing internal implementation details or sensitive information.
+
+## Security
+
+The application follows basic security best practices for managing credentials and sensitive information.
+
+- API keys are **never hardcoded** into the source code.
+- During local development, secrets are loaded from a `.env` file (see `.env.example`).
+- In Streamlit Cloud deployments, secrets are managed through **Streamlit Secrets** instead of source-controlled files.
+- The project's `.gitignore` prevents sensitive files and unnecessary artifacts from being committed, including:
+  - `.env`
+  - `.streamlit/secrets.toml`
+  - Python virtual environments
+  - Cache directories
+- Application logs never include API keys or other sensitive credentials. By design, `config.py` is the only module responsible for loading secrets, and no logging statements expose secret values.
+
+These practices help keep sensitive credentials out of version control while maintaining a clean separation between configuration and application code.
+
+## Testing
+
+The project includes **135 automated tests** covering the complete application pipeline.
+
+### Test Coverage
+
+- URL validation and YouTube video ID extraction (all supported URL formats)
+- YouTube and website extraction (all documented failure scenarios using mocks)
+- Text cleaning, chunking, and metadata preservation
+- Semantic deduplication with deterministic test embeddings
+- Groq/LangChain error handling (`safe_invoke` and `safe_batch`)
+- All three summarization strategies:
+  - Stuff
+  - Map-Reduce
+  - Refine
+- Strategy Factory and strategy selection logic
+
+All external dependencies (Groq API, network requests, YouTube APIs, and HuggingFace models) are mocked during testing, ensuring the test suite runs without API keys or internet access.
+
+Run the complete test suite:
+
+```bash
+pytest -v
+```
 
 ---
 
-## Project Structure
-
-genai-youtube-website-summarizer/ ├── src/ │ ├── init.py │ ├── config.py # Centralized configuration (models, API keys, timeouts) │ ├── logger.py # Logging setup │ ├── validators.py # URL validation & source detection │ │ │ ├── extractors/ # Extract content from sources │ │ ├── youtube_extractor.py │ │ └── website_extractor.py │ │ │ ├── processing/ # Clean, chunk, deduplicate │ │ ├── cleaner.py # Text normalization │ │ ├── chunker.py # LangChain RecursiveCharacterTextSplitter wrapper │ │ └── deduplicator.py # Semantic deduplication via embeddings │ │ │ └── summarization/ # Summarization strategies & LLM wrapper │ ├── base_strategy.py # Abstract base class & SummaryResult dataclass │ ├── llm.py # Groq wrapper with exponential backoff retry │ ├── prompts.py # Centralized prompt templates │ ├── stuff_strategy.py # Single-call summarization │ ├── map_reduce_strategy.py # Parallel + reduce summarization │ ├── refine_strategy.py # Sequential refinement summarization │ └── strategy_factory.py # Strategy selection & registration │ ├── tests/ # 135 automated tests │ ├── test_validators.py │ ├── test_youtube_extractor.py │ ├── test_website_extractor.py │ ├── test_cleaner.py │ ├── test_chunker.py │ ├── test_deduplicator.py │ ├── test_llm.py │ ├── test_stuff_strategy.py │ ├── test_map_reduce_strategy.py │ ├── test_refine_strategy.py │ ├── test_strategy_factory.py │ └── (more tests...) │ ├── app.py # Streamlit UI entry point ├── requirements.txt # Python dependencies ├── .env.example # Configuration template ├── .gitignore # Git ignore rules ├── pytest.ini # Pytest configuration └── README.md # This file
-
-Code
-
----
-
-## Installation
-
-### Prerequisites
-- Python 3.9+
-- Groq API key (free tier at https://console.groq.com)
+## Local Setup
 
 ### 1. Clone the repository
+
 ```bash
 git clone https://github.com/anaskazi-dev-mind/genai-youtube-website-summarizer.git
 cd genai-youtube-website-summarizer
-2. Create a virtual environment
-bash
+```
+
+### 2. Create a virtual environment
+
+```bash
 python -m venv venv
-source venv/bin/activate       # Linux/macOS
-# or
-venv\Scripts\activate          # Windows
-3. Install dependencies
-bash
+```
+
+### 3. Activate the virtual environment
+
+**Linux / macOS**
+
+```bash
+source venv/bin/activate
+```
+
+**Windows**
+
+```bash
+venv\Scripts\activate
+```
+
+### 4. Install dependencies
+
+```bash
 pip install -r requirements.txt
-4. Set up environment variables
-bash
+```
+
+### 5. Create the environment file
+
+**Linux / macOS**
+
+```bash
 cp .env.example .env
-# Edit .env and add your GROQ_API_KEY
-5. Run the application
-bash
+```
+
+**Windows**
+
+```cmd
+copy .env.example .env
+```
+
+Open the `.env` file and add your Groq API key.
+
+### 6. Run the application
+
+```bash
 streamlit run app.py
-The application will open at http://localhost:8501.
+```
 
-Environment Variables
-Required and optional configuration:
+---
 
-Variable	Required	Default	Description
-GROQ_API_KEY	✅ Yes	N/A	API key from https://console.groq.com
-GROQ_MODEL_NAME	No	openai/gpt-oss-120b	Override LLM model
-LOG_LEVEL	No	INFO	Logging verbosity (DEBUG, INFO, WARNING, ERROR)
-GROQ_RATE_LIMIT_RETRY_ATTEMPTS	No	5	Retry attempts on rate limit (1-10 recommended)
-GROQ_RATE_LIMIT_RETRY_BASE_DELAY	No	1	Initial backoff delay in seconds (exponential: 1s, 2s, 4s, ...)
-Example .env:
+## Environment Variables
 
-bash
-GROQ_API_KEY=gsk_your_actual_key_here
-GROQ_MODEL_NAME=openai/gpt-oss-120b
-LOG_LEVEL=INFO
-GROQ_RATE_LIMIT_RETRY_ATTEMPTS=5
-GROQ_RATE_LIMIT_RETRY_BASE_DELAY=1
-Running Locally
-Start the application
-bash
-streamlit run app.py
-Basic usage
-Paste a YouTube video URL or website URL
-Select a summarization strategy (Stuff, Map-Reduce, or Refine)
-Click "Summarize"
-View the structured summary and metadata
-Advanced: Direct Python usage (non-Streamlit)
+The project uses environment variables for configuration.
 
-from src.validators import detect_source_type, SourceType
-from src.extractors.youtube_extractor import fetch_youtube_document
-from src.extractors.website_extractor import fetch_website_document
-from src.processing.cleaner import clean_document
-from src.processing.chunker import split_documents
-from src.processing.deduplicator import deduplicate_chunks
-from src.summarization.strategy_factory import get_strategy
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GROQ_API_KEY` | ✅ Yes | Groq API key from https://console.groq.com |
+| `GROQ_MODEL_NAME` | No | Override the default Groq model |
+| `LOG_LEVEL` | No | Logging level (default: `INFO`) |
 
-# Extract
-url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-source = detect_source_type(url)
-doc = fetch_youtube_document(url) if source == SourceType.YOUTUBE else fetch_website_document(url)
+See `.env.example` for the complete configuration.
 
-# Process
-doc = clean_document(doc)
-chunks = split_documents([doc])
-chunks = deduplicate_chunks(chunks)
+---
 
-# Summarize
-strategy = get_strategy("map_reduce")  # or "stuff" or "refine"
-result = strategy.summarize(chunks)
+## GitHub & Deployment Workflow
 
-print(result.content)  # Print Markdown summary
-Running Tests
-Run all tests
-bash
-pytest -v
-Run specific test file
-bash
-pytest tests/test_chunker.py -v
-Run with coverage report
-bash
-pytest --cov=src --cov-report=html
-open htmlcov/index.html  # View coverage
-Test categories
-URL Validation: tests/test_validators.py
-Content Extraction: tests/test_youtube_extractor.py, tests/test_website_extractor.py
-Text Processing: tests/test_cleaner.py, tests/test_chunker.py
-Deduplication: tests/test_deduplicator.py
-LLM & Retry Logic: tests/test_llm.py
-Strategies: tests/test_stuff_strategy.py, tests/test_map_reduce_strategy.py, tests/test_refine_strategy.py
-All tests use mocked external APIs (Groq, YouTube, HuggingFace) and run without network access or API keys.
+The development workflow follows this pipeline:
 
-Configuration Options
-All configuration is centralized in src/config.py and src/config.py. Modify via environment variables or edit the file directly.
+```
+Local Development
+        │
+        ▼
+Git Commit
+        │
+        ▼
+GitHub Repository
+        │
+        ▼
+Streamlit Cloud Deployment
+        │
+        ▼
+Live Application
+```
 
-Chunking Configuration
+GitHub stores the source code and version history, while Streamlit Cloud hosts the deployed application.
 
-CHUNK_SIZE = 6000              # Characters per chunk (~1,500 tokens)
-CHUNK_OVERLAP = 500            # Overlap between chunks (10%)
-MAX_CHUNKS_PER_CONTENT = 15    # Safety limit (cost control)
-Impact: Larger chunks = fewer API calls but more context per request. Smaller chunks = more calls but lower per-request token count.
+---
 
-LLM Configuration
+## Streamlit Cloud Deployment
 
-DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"  # Main model
-GROQ_TEMPERATURE = 0.2                      # Low temp = more factual
-GROQ_REQUEST_TIMEOUT_SECONDS = 120          # 2-minute timeout
-Deduplication Configuration
+1. Push the project to GitHub.
+2. Open https://share.streamlit.io.
+3. Create a new Streamlit application.
+4. Select:
+   - Repository: `anaskazi-dev-mind/genai-youtube-website-summarizer`
+   - Branch: `main`
+   - Main file: `app.py`
+5. Go to **Settings → Secrets** and add:
 
-HUGGINGFACE_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-DEDUP_SIMILARITY_THRESHOLD = 0.92           # Remove >92% similar chunks
-HUGGINGFACE_EMBEDDING_TIMEOUT_SECONDS = 30  # Model load timeout
-Summarization Limits
+```toml
+GROQ_API_KEY = "your-real-api-key"
+```
 
-STUFF_STRATEGY_MAX_ESTIMATED_TOKENS = 100_000  # Max single-call size
-MAP_REDUCE_MAX_CONCURRENCY = 1                  # Concurrent map tasks
-Error Handling
-The application handles all common failure scenarios with clear, user-friendly messages:
+6. Deploy the application.
 
-URL/Validation Errors
-Invalid URLs
-Unsupported URL formats
-YouTube-Specific Errors
-Video not found or unavailable
-Transcripts disabled by uploader
-No English transcript available
-Age-restricted videos
-YouTube blocking transcript requests (Streamlit Cloud issue)
-Website-Specific Errors
-Connection timeouts
-HTTP errors (404, 500, etc.)
-Non-HTML responses
-Insufficient extractable content
-Processing Errors
-Content too long (exceeds chunk limit)
-All chunks removed by deduplication
-HuggingFace model download timeout
-LLM/Groq Errors
-Authentication failures
-Rate limit exceeded
-Request timeouts
-Oversized inputs for strategy
-All errors are logged with full technical details while displaying sanitized messages to users.
+> **Note:** Website summarization works successfully on Streamlit Cloud. YouTube transcript extraction may fail because YouTube blocks transcript requests originating from some shared cloud IP addresses. The same functionality works correctly in the local environment.
 
-Logging
-Logging is configured in src/logger.py with per-module granularity.
+## Limitations
 
-Log Levels
-DEBUG: Verbose internal details (token counts, chunk indices, etc.)
-INFO: Pipeline milestones (extraction, chunking, summarization steps)
-WARNING: Rate limits, slow operations, non-critical issues
-ERROR: Failures and exceptions (with technical details)
-Enable debug logging
-bash
-LOG_LEVEL=DEBUG streamlit run app.py
-Log output example
-Code
-2026-08-15 17:26:36 | INFO     | src.extractors.youtube_extractor | Extracted YouTube transcript (33750 chars, language=en)
-2026-08-15 17:26:36 | INFO     | src.processing.chunker | Split 1 document(s) into 7 chunks
-2026-08-15 17:26:45 | INFO     | src.processing.deduplicator | Deduplication: 7 chunks -> 6 chunks (1 dropped, threshold=0.92)
-2026-08-15 17:26:50 | WARNING  | src.summarization.llm | Rate limit hit (attempt 1/5). Retrying in 1 seconds...
-2026-08-15 17:26:51 | INFO     | src.summarization.refine_strategy | Refine: updating summary with chunk 2 of 7
-Logs never contain API keys or sensitive data by design.
+- YouTube transcript requests may be blocked or rate-limited from shared cloud IP addresses, independent of this application's implementation.
+- During deployment testing, YouTube summarization worked correctly in the local environment but may fail on Streamlit Cloud because YouTube blocks transcript requests from many shared cloud IPs. Website summarization is not affected.
+- Website extraction is best-effort. JavaScript-heavy websites, paywalled content, and anti-bot protections may prevent successful content extraction.
+- Only English-language YouTube transcripts are currently supported.
+- The Stuff strategy and the Reduce phase of Map-Reduce rely on a single LLM call. Extremely large inputs may still exceed the model's context window because hierarchical/recursive reduction is not yet implemented.
+- The Refine strategy does not support checkpointing, so a failure during processing requires restarting the summarization.
+- Chunk size, overlap, and deduplication threshold are based on practical defaults and have not been tuned using a labeled evaluation dataset.
+- No formal benchmark has been conducted to compare summary quality across different LLMs.
 
-Rate Limit Handling
-The Groq free tier has rate limits (~30 requests/minute). This application includes automatic recovery:
+## Future Improvements
 
-Exponential Backoff Retry
-When a rate limit is hit:
+- Support multilingual YouTube transcripts with automatic translation.
+- Implement hierarchical/recursive reduction for extremely large documents.
+- Add checkpointing and retry support for the Refine strategy.
+- Use LangChain's `.with_structured_output()` for schema-based responses instead of prompt-based Markdown formatting.
+- Add a headless browser fallback for JavaScript-rendered websites.
+- Introduce a faster summarization mode using `openai/gpt-oss-20b`.
 
-Wait 1 second, retry
-If fails: wait 2 seconds, retry
-If fails: wait 4 seconds, retry
-If fails: wait 8 seconds, retry
-If fails: wait 16 seconds, retry
-After 5 attempts, fail with user message
-Configuration:
+## Screenshots
 
-bash
-GROQ_RATE_LIMIT_RETRY_ATTEMPTS=5        # Total attempts
-GROQ_RATE_LIMIT_RETRY_BASE_DELAY=1      # Initial backoff (seconds)
-Example: A rate-limited Map-Reduce with 3 chunks will:
+### Home Page
 
-Attempt 1: Fail immediately (rate limit)
-Wait 1s, Attempt 2: Retry all 3 chunks (concurrent)
-If still rate-limited: Wait 2s, Attempt 3
-Continue with exponential backoff up to 5 attempts
-Cost of retries: Zero additional cost—retries consume no extra quota since they fail at the same second.
+![AI YouTube & Website Summarizer](Screenshot%202026-08-14%20155701.png)
 
-User guidance on rate limits
-Use Stuff strategy for faster completion (1 API call vs. N+1)
-Try shorter content (fewer chunks = fewer calls)
-Wait 2-5 minutes for quotas to reset
-Consider longer GROQ_RATE_LIMIT_RETRY_ATTEMPTS for free tier
-Example Usage
-Summarize a YouTube Video
-Code
-URL: https://www.youtube.com/watch?v=dQw4w9WgXcQ
-Strategy: Map-Reduce
-Result: A structured summary with title, key points, and takeaways
-Summarize a Blog Post
-Code
-URL: https://example.com/article/best-python-practices
-Strategy: Stuff (if article is short) or Map-Reduce (if long)
-Result: Executive summary with important details extracted
-Summarize a Long Article Series
-Code
-URL: https://example.com/series-part-1
-Strategy: Refine (preserves narrative continuity across sections)
-Result: Summary that respects the original article's structure
-Limitations
-⚠️ Content Source Limitations
+### Generated Summary
 
-YouTube transcripts must be in English or auto-generated
-YouTube may block transcript requests from Streamlit Cloud
-Websites with JavaScript rendering may fail extraction
-Paywalled or anti-bot-protected content may be inaccessible
-⚠️ Summarization Limitations
+![AI YouTube & Website Summarizer](<Screenshot 2026-08-14 155720.png>)
 
-Stuff strategy fails on content >100K tokens
-Map-Reduce Reduce step may fail on >100K combined intermediate summaries (no recursive reduce)
-Refine strategy has no checkpointing (restart required if it fails mid-processing)
-Chunk size/overlap/dedup threshold are practical defaults, not empirically tuned
-⚠️ API Limitations
+## Live Demo
 
-Groq free tier: ~30 requests/minute (quota resets every minute)
-No batch processing: Each chunk request counts as one API call
-Model selection is limited to Groq's currently available models
-⚠️ Operational Limitations
+**Live Application:**  
+https://genai-youtube-website-summarizer-ezjvepfm9fc7dzy9dbtbdo.streamlit.app/
 
-No multi-user session management
-No result caching across requests
-Temporary in-memory storage only (no persistence)
-Performance Considerations
-Latency (Time to Summary)
-Content Type	Length	Stuff	Map-Reduce	Refine
-YouTube Short	<1 min	<5s	~10s	~15s
-YouTube Video	10-20 min	Fails (too long)	30-60s	60-90s
-Blog Post	2,000-5,000 words	10-20s	20-30s	30-40s
-Long Article	10,000+ words	Fails	60-120s	120-180s
-Notes:
-
-Stuff is fastest but limited to short content
-Map-Reduce parallelizes chunk processing (faster for long content)
-Refine is sequential but preserves narrative flow
-Rate limits may add 1-5 minute wait time on free Groq tier
-Cost (API Calls)
-Strategy	Calls	Cost on Free Tier
-Stuff (1 chunk)	1	✅ Free
-Map-Reduce (5 chunks)	6 (5 map + 1 reduce)	~$0.01-0.05 (paid)
-Refine (5 chunks)	5 (1 initial + 4 updates)	~$0.01-0.04 (paid)
-Free tier: Unlimited calls, but rate-limited to ~30/minute.
-
-Memory Usage
-HuggingFace model: ~90MB (cached locally)
-Document storage: ~1MB per 1000 chunks
-No streaming: Full content loaded before processing
-Future Improvements
-🎯 Short-term
-
-Multilingual YouTube transcript support with auto-translation
-Streaming chunk processing (reduce memory footprint)
-Result caching with TTL
-🎯 Medium-term
-
-Hierarchical/recursive reduction for 100K+ token summaries
-Refine strategy checkpointing and recovery
-Headless browser fallback for JS-rendered websites
-Multiple LLM provider support (Claude, Gemini, etc.)
-🎯 Long-term
-
-Fast summarization mode using smaller models (gpt-oss-20b)
-Vector database integration for semantic search in summaries
-Multi-document summarization
-Structured extraction (extract facts, figures, entities)
-Fine-tuned models for domain-specific summarization
-Contributing
-Contributions welcome! The codebase is modular and well-tested.
-
-To add a new feature:
-
-Create a branch: git checkout -b feature/my-feature
-Make changes with tests: pytest tests/
-Ensure full test coverage: pytest --cov=src
-Submit a PR with description of changes
-To add a new summarization strategy:
-
-Inherit from SummarizationStrategy in src/summarization/base_strategy.py
-Implement the summarize() method
-Register in src/summarization/strategy_factory.py
-Add tests in tests/test_my_strategy.py
-Update UI in app.py to include new strategy option
-License
-This project is open source. See LICENSE file for details.
-
-Quick Links
-Live Demo: https://genai-youtube-website-summarizer-ezjvepfm9fc7dzy9dbtbdo.streamlit.app/
-Groq Console: https://console.groq.com
-LangChain Docs: https://python.langchain.com
-Architecture Details: See ARCHITECTURE.md
-Support
-Issues: https://github.com/anaskazi-dev-mind/genai-youtube-website-summarizer/issues
-Discussions: https://github.com/anaskazi-dev-mind/genai-youtube-website-summarizer/discussions
-Built with ❤️ using LangChain, Groq, and Streamlit
+> **Note:** Website summarization works successfully in the deployed application. YouTube transcript extraction may fail on Streamlit Cloud because YouTube blocks transcript requests from many shared cloud IP addresses. The same functionality works correctly when the application is run locally.
