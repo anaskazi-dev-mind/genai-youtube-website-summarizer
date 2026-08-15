@@ -6,28 +6,11 @@ summarization strategy, and provides one centralized place that
 translates Groq/network failures into this project's own exception
 type with a user-safe message.
 
-UPDATED for the Map-Reduce milestone: added safe_batch() for
-concurrent per-chunk calls. The Groq exception-translation logic that
-used to live only inside safe_invoke's except clauses is now a shared
-helper, _translate_groq_exception(), used by BOTH safe_invoke and
-safe_batch -- so the two call paths can never drift out of sync with
-different messages for the same underlying Groq failure. safe_invoke's
-external behavior is unchanged by this refactor.
-
-Verified directly against langchain-groq 1.1.3 / groq SDK 0.37.1:
-- ChatGroq's constructor args: `model` (alias model_name), `api_key`
-  (alias groq_api_key). Constructing ChatGroq makes no network call.
-- Runnable.batch() runs concurrently via a thread pool (config=
-  {"max_concurrency": N}), preserves input order in its output, and
-  raises the ORIGINAL exception type on failure -- not a wrapped one
-  -- so the same exception handling applies to both invoke() and
-  batch().
-- groq's exception hierarchy: GroqError -> APIError -> (APIConnectionError
-  -> APITimeoutError) and (APIStatusError -> RateLimitError,
-  AuthenticationError, BadRequestError, PermissionDeniedError,
-  NotFoundError, InternalServerError, ...).
+Includes exponential backoff retry logic for rate-limit errors,
+allowing temporary quota exhaustion to recover without user intervention.
 """
 
+import time
 from functools import lru_cache
 from typing import Any, List, Optional
 
@@ -40,6 +23,8 @@ from src.config import (
     GROQ_MODEL_NAME,
     GROQ_REQUEST_TIMEOUT_SECONDS,
     GROQ_TEMPERATURE,
+    GROQ_RATE_LIMIT_RETRY_ATTEMPTS,
+    GROQ_RATE_LIMIT_RETRY_BASE_DELAY,
     get_groq_api_key,
 )
 from src.logger import get_logger
@@ -108,8 +93,9 @@ def _translate_groq_exception(exc: Exception) -> LLMGenerationError:
         )
     if isinstance(exc, groq.RateLimitError):
         return LLMGenerationError(
-            "Groq's rate limit was hit for this request. Please wait "
-            "a moment and try again.",
+            "Groq's rate limit was hit. The system has retried with exponential "
+            "backoff. Please wait a moment and try again. Consider reducing content "
+            "length or using a faster summarization strategy (Stuff).",
             cause=exc,
         )
     if isinstance(exc, groq.APITimeoutError):
@@ -146,14 +132,36 @@ def _translate_groq_exception(exc: Exception) -> LLMGenerationError:
 
 def safe_invoke(chain: Runnable, chain_input: Any) -> Any:
     """
-    Invokes any LangChain Runnable -- a bare ChatGroq instance, or a
-    full `prompt | llm | parser` chain -- and translates every
-    Groq/network failure into LLMGenerationError.
+    Invokes any LangChain Runnable with exponential backoff retry on rate limits.
+
+    Rate limit errors are retried with exponential backoff (e.g., 1s, 2s, 4s, 8s)
+    up to GROQ_RATE_LIMIT_RETRY_ATTEMPTS times. Other errors are raised immediately
+    with appropriate user-safe messages.
+
+    This dramatically improves reliability on free Groq tier where quotas reset
+    every minute but requests can exceed the limit.
     """
-    try:
-        return chain.invoke(chain_input)
-    except groq.APIError as exc:
-        raise _translate_groq_exception(exc) from exc
+    for attempt in range(GROQ_RATE_LIMIT_RETRY_ATTEMPTS):
+        try:
+            return chain.invoke(chain_input)
+        except groq.RateLimitError as exc:
+            # Rate limit is temporary; retry with exponential backoff
+            if attempt < GROQ_RATE_LIMIT_RETRY_ATTEMPTS - 1:
+                wait_time = GROQ_RATE_LIMIT_RETRY_BASE_DELAY * (2**attempt)
+                logger.warning(
+                    "Rate limit hit (attempt %d/%d). Retrying in %d seconds...",
+                    attempt + 1,
+                    GROQ_RATE_LIMIT_RETRY_ATTEMPTS,
+                    wait_time,
+                )
+                time.sleep(wait_time)
+                continue
+            else:
+                # All retries exhausted
+                raise _translate_groq_exception(exc) from exc
+        except groq.APIError as exc:
+            # Other Groq errors are not retryable; fail immediately
+            raise _translate_groq_exception(exc) from exc
 
 
 def safe_batch(
@@ -164,20 +172,46 @@ def safe_batch(
 ) -> List[Any]:
     """
     Runs a LangChain Runnable against multiple inputs CONCURRENTLY
-    (via Runnable.batch()'s thread pool), and translates every
-    Groq/network failure into LLMGenerationError, exactly like
-    safe_invoke.
+    with exponential backoff retry on rate limits.
+
+    Rate limit errors are retried with exponential backoff up to
+    GROQ_RATE_LIMIT_RETRY_ATTEMPTS times. Other errors are raised immediately.
 
     Output order matches input order regardless of which call
     actually finishes first (verified directly).
 
-    NOTE, an honest limitation: with batch()'s default
-    return_exceptions=False, ONE failing item aborts the entire batch
-    -- there's no partial-results fallback where successfully
-    summarized chunks are kept and only the failed one is retried.
-    That's a real trade-off, not something this version handles.
+    NOTE: With batch()'s default return_exceptions=False, ONE failing item
+    aborts the entire batch. The exponential backoff retry mitigates this
+    by retrying the entire batch if a rate limit is hit.
     """
-    try:
-        return chain.batch(chain_inputs, config={"max_concurrency": max_concurrency})
-    except groq.APIError as exc:
-        raise _translate_groq_exception(exc) from exc
+    for attempt in range(GROQ_RATE_LIMIT_RETRY_ATTEMPTS):
+        try:
+            return chain.batch(
+                chain_inputs, config={"max_concurrency": max_concurrency}
+            )
+        except groq.RateLimitError as exc:
+            # Rate limit is temporary; retry with exponential backoff
+            if attempt < GROQ_RATE_LIMIT_RETRY_ATTEMPTS - 1:
+                wait_time = GROQ_RATE_LIMIT_RETRY_BASE_DELAY * (2**attempt)
+                logger.warning(
+                    "Rate limit hit in batch (attempt %d/%d, %d items). "
+                    "Retrying in %d seconds...",
+                    attempt + 1,
+                    GROQ_RATE_LIMIT_RETRY_ATTEMPTS,
+                    len(chain_inputs),
+                    wait_time,
+                )
+                time.sleep(wait_time)
+                continue
+            else:
+                # All retries exhausted; raise after all attempts failed
+                raise _translate_groq_exception(exc) from exc
+        except groq.APIError as exc:
+            # Other Groq errors are not retryable; fail immediately
+            raise _translate_groq_exception(exc) from exc
+
+    # This line should never be reached because the loop always either
+    # returns, continues, or raises. But Pylance requires it for type safety.
+    raise LLMGenerationError(
+        "Unexpected error: batch processing completed without result or exception."
+    )

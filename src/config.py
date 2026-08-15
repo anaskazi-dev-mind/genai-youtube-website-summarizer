@@ -9,6 +9,7 @@ Single source of truth for:
 - Chunking parameters (chunk size, chunk overlap)
 - Deduplication threshold
 - Logging level
+- Rate limit retry behavior
 
 Nothing outside this file should call os.environ or st.secrets directly.
 That keeps "where do we get GROQ_API_KEY from" a one-file answer, and
@@ -109,6 +110,28 @@ GROQ_MODEL_NAME = cast(
     str,
     _get_secret("GROQ_MODEL_NAME", DEFAULT_GROQ_MODEL),
 )
+
+# ---------------------------------------------------------------------------
+# Groq Rate Limit Retry Configuration
+# ---------------------------------------------------------------------------
+
+# Number of times to retry a request if Groq rate limit is hit.
+# Each retry waits with exponential backoff (1s, 2s, 4s, 8s, ...).
+# Higher values = more likely to succeed on free tier but longer waits.
+# Lower values = faster failure detection on paid tiers.
+# Overridable via GROQ_RATE_LIMIT_RETRY_ATTEMPTS environment variable.
+GROQ_RATE_LIMIT_RETRY_ATTEMPTS = int(
+    _get_secret("GROQ_RATE_LIMIT_RETRY_ATTEMPTS", "5") or "5"
+)
+
+# Base delay (in seconds) for exponential backoff on rate limit retries.
+# Actual delay = base_delay * (2 ^ attempt_number).
+# Example: base_delay=1 means retries happen at 1s, 2s, 4s, 8s, 16s.
+# Overridable via GROQ_RATE_LIMIT_RETRY_BASE_DELAY environment variable.
+GROQ_RATE_LIMIT_RETRY_BASE_DELAY = int(
+    _get_secret("GROQ_RATE_LIMIT_RETRY_BASE_DELAY", "1") or "1"
+)
+
 # ---------------------------------------------------------------------------
 # HuggingFace configuration
 # ---------------------------------------------------------------------------
@@ -173,6 +196,5 @@ STUFF_STRATEGY_MAX_ESTIMATED_TOKENS = 100_000
 # How many chunks Map-Reduce's map step summarizes CONCURRENTLY at
 # once. Higher = faster wall-clock time for long content, but more
 # simultaneous requests to Groq. Tuned to balance parallelism against
-# rate-limit risk. Set to 5 as a conservative starting value; monitor
-# and adjust based on actual Groq rate limit behavior.
+# rate-limit risk. Set to 1 for free tier to minimize concurrent requests.
 MAP_REDUCE_MAX_CONCURRENCY = 1

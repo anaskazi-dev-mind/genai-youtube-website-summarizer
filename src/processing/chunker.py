@@ -13,7 +13,7 @@ to a hard character cut -- so chunks avoid splitting mid-sentence
 whenever the content allows it.
 """
 
-from typing import List
+from typing import List, Optional
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -32,7 +32,11 @@ logger = get_logger(__name__)
 _ESTIMATED_CHARS_PER_TOKEN = 4
 
 
-def split_documents(documents: List[Document]) -> List[Document]:
+def split_documents(
+    documents: List[Document],
+    *,
+    enforce_max_chunks: bool = True,
+) -> List[Document]:
     """
     Splits one or more Documents into chunks sized by CHUNK_SIZE /
     CHUNK_OVERLAP (src/config.py). Each output chunk keeps the source
@@ -45,8 +49,16 @@ def split_documents(documents: List[Document]) -> List[Document]:
     useful in logs, and for the Refine strategy, which needs to know
     chunk order.
 
-    Raises SummarizationError if content chunks to more than
-    MAX_CHUNKS_PER_CONTENT to prevent runaway API costs.
+    Args:
+        documents: List of LangChain Documents to split
+        enforce_max_chunks: If True (default), raises SummarizationError when
+            chunk count exceeds MAX_CHUNKS_PER_CONTENT. If False (tests only),
+            skips this check to allow unit testing of chunking behavior.
+            NEVER set this to False in production code.
+
+    Raises:
+        SummarizationError: If enforce_max_chunks is True and chunk count
+            exceeds MAX_CHUNKS_PER_CONTENT, to prevent runaway API costs.
     """
     from src.summarization.base_strategy import SummarizationError
 
@@ -59,7 +71,10 @@ def split_documents(documents: List[Document]) -> List[Document]:
 
     chunks = splitter.split_documents(documents)
 
-    if len(chunks) > MAX_CHUNKS_PER_CONTENT:
+    # Apply safeguard only if enforce_max_chunks is True (production mode).
+    # Tests should pass enforce_max_chunks=False to test chunking behavior
+    # in isolation without triggering this safeguard.
+    if enforce_max_chunks and len(chunks) > MAX_CHUNKS_PER_CONTENT:
         raise SummarizationError(
             f"This content is too long to process ({len(chunks)} chunks, "
             f"limit is {MAX_CHUNKS_PER_CONTENT} chunks). "

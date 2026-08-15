@@ -141,6 +141,22 @@ def _render_result(result: SummaryResult) -> None:
         st.write(f"**Chunks processed:** {result.chunk_count}")
 
 
+def _get_rate_limit_help() -> str:
+    """Returns helpful guidance when rate limited."""
+    return """
+    ### Groq API Rate Limit Exceeded
+
+    You've hit Groq's free tier rate limit. Here's what to do:
+
+    1. **Wait 1-2 minutes** - Groq quotas reset automatically. Then try again.
+    2. **Use Stuff strategy** - Summarizes everything in 1 API call instead of many.
+    3. **Try shorter content** - Fewer chunks = fewer API calls.
+    4. **Consider Groq Paid Plan** - Free tier has ~30 requests/minute. Paid tiers are much higher.
+
+    The system already retried with exponential backoff, so this is a genuine limit.
+    """
+
+
 def main() -> None:
     _init_session_state()
 
@@ -198,6 +214,24 @@ def main() -> None:
                         expanded=False,
                     )
                     st.session_state.summary_result = result
+
+                except LLMGenerationError as exc:
+                    status.update(
+                        label="Failed",
+                        state="error",
+                        expanded=True,
+                    )
+                    # Check if it's a rate limit error and provide extra help
+                    if "rate limit" in str(exc).lower():
+                        st.session_state.error_message = str(exc)
+                        st.markdown(_get_rate_limit_help())
+                    else:
+                        st.session_state.error_message = str(exc)
+                    logger.info(
+                        "Handled LLM error for %s: %s",
+                        url,
+                        str(exc),
+                    )
 
                 except _USER_FACING_ERRORS as exc:
                     status.update(
