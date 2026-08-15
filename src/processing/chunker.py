@@ -54,6 +54,16 @@ def split_documents(documents: List[Document]) -> List[Document]:
 
     chunks = splitter.split_documents(documents)
 
+    MAX_CHUNKS = 5
+
+    if len(chunks) > MAX_CHUNKS:
+        logger.warning(
+            "Too many chunks (%d). Limiting to first %d chunks.",
+            len(chunks),
+            MAX_CHUNKS,
+        )
+        chunks = chunks[:MAX_CHUNKS]
+
     # chunk_index is scoped per source_url, not global across all
     # input documents -- matters if this is ever called with multiple
     # documents from different sources at once.

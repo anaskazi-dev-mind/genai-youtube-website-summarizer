@@ -46,7 +46,7 @@ from src.logger import get_logger
 
 logger = get_logger(__name__)
 
-_MAX_RETRIES = 2
+_MAX_RETRIES = 4
 _DEFAULT_BATCH_MAX_CONCURRENCY = 5
 
 

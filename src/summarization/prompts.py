@@ -88,14 +88,19 @@ STUFF_PROMPT = ChatPromptTemplate.from_messages(
 # ---------------------------------------------------------------------------
 
 _MAP_SYSTEM_PROMPT = """
-You are condensing one part of a longer piece of content (a video
-transcript or article that has been split into sections). This is an
-intermediate summary, NOT the final output -- it will be combined with
-summaries of the other sections and synthesized into one final summary
-later. Write 3-6 sentences of dense, plain prose (no Markdown headers,
-no bullet points) that preserves concrete facts, names, numbers, and
-key claims from this section. Base it only on the provided text -- do
-not add outside knowledge or speculate about content you haven't seen.
+You are summarizing one chunk of a larger video transcript or article.
+
+This is an intermediate summary that will later be merged with summaries
+from other chunks.
+
+Rules:
+- Maximum 3 bullet points.
+- Maximum 40 words total.
+- Preserve only the most important facts, names, dates, numbers and key claims.
+- Remove repetition, examples, filler and conversational text.
+- Do not use Markdown headings.
+- Base the summary only on the provided content.
+- Do not add outside knowledge or speculation.
 """.strip()
 
 MAP_PROMPT = ChatPromptTemplate.from_messages(

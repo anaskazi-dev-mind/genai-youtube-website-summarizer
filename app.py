@@ -77,6 +77,7 @@ def _init_session_state() -> None:
     # clearing a widget's value, since a widget's value can't be
     # reassigned directly after it's been instantiated.
     st.session_state.setdefault("input_key_version", 0)
+    st.session_state.setdefault("pipeline_running", False)
 
 
 def _run_pipeline(url: str, strategy_name: str, status) -> SummaryResult:
@@ -175,26 +176,49 @@ def main() -> None:
             with st.status("Starting...", expanded=True) as status:
                 try:
                     result = _run_pipeline(url.strip(), strategy_name, status)
-                    status.update(label="Done!", state="complete", expanded=False)
-                    st.session_state.summary_result = result
-                except _USER_FACING_ERRORS as exc:
-                    status.update(label="Failed", state="error", expanded=True)
-                    st.session_state.error_message = str(exc)
-                    logger.info("Handled pipeline error for %s: %s", url, str(exc))
-                except ConfigError as exc:
                     status.update(
-                        label="Configuration error", state="error", expanded=True
+                        label="Done!",
+                        state="complete",
+                        expanded=False,
+                    )
+                    st.session_state.summary_result = result
+
+                except _USER_FACING_ERRORS as exc:
+                    status.update(
+                        label="Failed",
+                        state="error",
+                        expanded=True,
                     )
                     st.session_state.error_message = str(exc)
+                    logger.info(
+                        "Handled pipeline error for %s: %s",
+                        url,
+                        str(exc),
+                    )
+
+                except ConfigError as exc:
+                    status.update(
+                        label="Configuration error",
+                        state="error",
+                        expanded=True,
+                    )
+                    st.session_state.error_message = str(exc)
+
                 except Exception:
-                    status.update(label="Failed", state="error", expanded=True)
+                    status.update(
+                        label="Failed",
+                        state="error",
+                        expanded=True,
+                    )
                     st.session_state.error_message = (
                         "An unexpected error occurred. Please try again -- "
                         "if this keeps happening, this content may not be "
                         "supported yet."
                     )
-                    logger.exception("Unexpected error while summarizing %s", url)
-
+                    logger.exception(
+                        "Unexpected error while summarizing %s",
+                        url,
+                    )
     if st.session_state.error_message:
         st.error(st.session_state.error_message)
 

@@ -43,11 +43,21 @@ def _configure_root_once() -> None:
 
     root = logging.getLogger()
     root.setLevel(LOG_LEVEL)
-    root.addHandler(handler)
+
+    # Avoid attaching duplicate handlers when Streamlit reruns the app.
+    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
+        root.addHandler(handler)
 
     # Quiet down noisy third-party loggers we don't control and don't
     # want flooding our own pipeline logs (HTTP client chatter, etc.).
-    for noisy_logger in ("urllib3", "httpx", "httpcore", "sentence_transformers"):
+    for noisy_logger in (
+        "urllib3",
+        "httpx",
+        "httpcore",
+        "sentence_transformers",
+        "streamlit",
+        "watchdog",
+    ):
         logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
     _configured = True
@@ -59,7 +69,10 @@ def get_logger(name: str) -> logging.Logger:
     Safe to call from every module -- root handler setup only happens once.
     """
     _configure_root_once()
-    return logging.getLogger(name)
+
+    logger = logging.getLogger(name)
+    logger.propagate = True
+    return logger
 
 
 def truncate_for_log(text: str, max_length: int = 200) -> str:

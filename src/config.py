@@ -20,7 +20,6 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
-STUFF_STRATEGY_MAX_ESTIMATED_TOKENS = 100_000
 # Load .env into os.environ for local development.
 # On Streamlit Cloud there is no .env file, so this is a harmless no-op;
 # secrets are provided via Streamlit's secrets manager instead (see
@@ -96,9 +95,9 @@ GROQ_TEMPERATURE = 0.2
 
 # Map-Reduce/Refine mean many sequential Groq calls for long inputs; we'd
 # rather fail one call clearly than hang the whole Streamlit session.
-GROQ_REQUEST_TIMEOUT_SECONDS = 60
+GROQ_REQUEST_TIMEOUT_SECONDS = 120
 
-DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
+DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant"
 
 GROQ_MODEL_NAME = cast(
     str,
@@ -138,8 +137,8 @@ MIN_ACCEPTABLE_TEXT_LENGTH = 200
 # Starting values -- the full reasoning (why this size, what happens if
 # it's too small/large) is documented when we implement chunker.py,
 # where we can reason about it against real transcripts/articles.
-CHUNK_SIZE = 4000
-CHUNK_OVERLAP = 400
+CHUNK_SIZE = 6000
+CHUNK_OVERLAP = 500
 
 
 # ---------------------------------------------------------------------------
